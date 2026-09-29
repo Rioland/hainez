@@ -42,3 +42,6 @@ next-env.d.ts
 
 # committed template
 !.env.example
+
+# local uploads (STORAGE_DRIVER=local)
+/.data

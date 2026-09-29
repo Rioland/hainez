@@ -28,3 +28,10 @@ export const domainStatus = pgEnum("domain_status", [
 ]);
 
 export const registrarKind = pgEnum("registrar_kind", ["hostinger", "manual", "external"]);
+
+export const productStatus = pgEnum("product_status", ["draft", "active", "archived"]);
+
+/** Order lifecycle. Allowed transitions live in src/server/modules/orders/transitions.ts. */
+export const orderStatus = pgEnum("order_status", ["pending", "paid", "shipped", "delivered", "cancelled"]);
+
+export const actorType = pgEnum("actor_type", ["user", "super_admin", "customer", "system"]);

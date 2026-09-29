@@ -3,3 +3,7 @@ export * from "./auth";
 export * from "./platform";
 export * from "./stores";
 export * from "./domains";
+export * from "./media";
+export * from "./catalog";
+export * from "./commerce";
+export * from "./ops";

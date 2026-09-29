@@ -2,6 +2,57 @@
 
 Decisions made after the original proposal (`PROPOSAL.md`). Newest first.
 
+## Stage 2 (2026-09-29)
+
+### Catalog model
+- **Every product has at least one variant**, so price, SKU and stock always live on variants.
+  - A product without options has one "Default" variant.
+  - Options (at most 3, e.g. Size and Colour) generate the variant matrix in the editor. Unwanted combinations can be unticked.
+- **Deleting a product or variant is a soft delete** (`deleted_at`), because past orders keep pointing at it. Unique slugs and SKUs only apply to live rows, so a deleted product frees its slug and SKUs.
+- **Changing a product's title keeps its URL** so existing links don't break. The URL only changes if you edit the handle.
+- **Descriptions are plain text** (line breaks kept). Rich text can come later.
+
+### Money and prices
+- Amounts are stored in minor units (kobo). Inputs accept `15,000.50` or `₦15000`.
+- **Changing the store currency does not convert prices.** The settings page warns about this.
+- **Order totals come from the database, never from the client.** `createOrder()` is the function Stage 3 checkout will call.
+
+### Orders and stock
+- `pending → paid | shipped | cancelled`, `paid → shipped | cancelled`, `shipped → delivered`.
+- **Pay-on-delivery:** `pending → shipped` is allowed, and delivering an unpaid order marks it paid.
+- **When stock moves:** it is taken when an order first becomes paid or shipped, and returned on cancel.
+- **Concurrency:** the order row is locked (`FOR UPDATE`), so two people clicking at once can't both apply a change or double-take stock. Overselling is refused with the item and the remaining quantity named.
+- **Refunds and returns** are not in scope yet. They arrive with payments in Stage 7.
+- **Orders are not created manually in the admin.** Stage 2 has no "create order" screen; orders arrive from checkout in Stage 3. The demo seed makes sample orders through `createOrder()`.
+
+### Composite foreign keys that clear only their own column
+Some child columns are nullable and should only be cleared when the parent is deleted (e.g. `orders.shipping_method_id`, `categories.parent_id`). These use Postgres 15+ `ON DELETE SET NULL (column)` in `drizzle/0004_nullable_tenant_fks.sql`, because Drizzle can't express the column list. **Neon and local Postgres 18 both support it.**
+
+### Audit log
+Product, category, order, settings and delivery changes write to `audit_logs` in the same transaction as the change. A trigger makes the table append-only for every role; it only allows the FK to clear a reference when a store or user is hard-deleted. Secrets are redacted.
+
+### Storage
+- `StorageAdapter` has two implementations:
+  - **S3-compatible** (R2) via `aws4fetch`, with signed PUT URLs.
+  - **Local disk** (`.data/uploads`) for development.
+- Local storage is refused on Vercel, because its disk is ephemeral.
+- **Uploads are verified before they're recorded:** file signature (magic bytes), size cap (5 MB default), and that the key belongs to this store.
+
+### Two pitfalls we hit (and the rules that follow)
+1. **Drizzle unqualified columns in subqueries.**
+   - In a single-table query, Drizzle drops table names from columns written directly in a select-field `sql` template.
+   - Inside a correlated subquery this silently changed meaning: `"order_id" = "id"` bound to the inner table, so item counts came out as 0.
+   - **Rule:** wrap correlated subqueries with `subquery()` from `src/server/db/sql.ts`. Integration tests now assert those aggregates.
+2. **Server actions don't call `redirect()`.**
+   - Next's single-roundtrip action redirect re-fetched the target page without the session cookie, which bounced the user to login.
+   - **Rule:** actions return `redirectTo`, and the client navigates with `useActionRedirect`.
+   - Because of this, the product editor keeps its action state outside the keyed (remounting) editor.
+
+### Deferred
+- **Plan limits** (max products, staff seats) need the plans table: Stage 6.
+- **Staff invitations** need email: Stage 5/10.
+- **Storefront pages and caching:** Stage 3. Dashboard changes already expire the `store:{id}:catalog` / `:settings` cache tags the storefront will use.
+
 ## Stage 1 (2026-09-29)
 
 ### Hosting: Vercel + Neon for now; VPS later
@@ -34,7 +85,7 @@ Decisions made after the original proposal (`PROPOSAL.md`). Newest first.
 - Email verification switches on once transactional email exists (Stage 10).
 
 ### Tables in Stage 1
-- Created now: `users`, the auth tables, `reserved_subdomains`, `platform_settings`, `stores`, `store_members`, `domains`.
+- Created in Stage 1: `users`, the auth tables, `reserved_subdomains`, `platform_settings`, `stores`, `store_members`, `domains`.
 - Every other table from `schema-proposal.sql` arrives in the stage that uses it.
 - `stores.billing_status` is only changed by platform code. The trial → grace → suspended sweeper is Stage 6.
 

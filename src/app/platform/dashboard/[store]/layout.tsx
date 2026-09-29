@@ -5,13 +5,14 @@ import { storefrontUrl } from "@/server/tenancy/urls";
 
 const NAV = [
   { label: "Overview", path: "", stage: null },
-  { label: "Products", path: "/products", stage: 2 },
-  { label: "Orders", path: "/orders", stage: 2 },
-  { label: "Customers", path: "/customers", stage: 2 },
+  { label: "Orders", path: "/orders", stage: null },
+  { label: "Products", path: "/products", stage: null },
+  { label: "Categories", path: "/categories", stage: null },
+  { label: "Customers", path: "/customers", stage: null },
+  { label: "Settings", path: "/settings", stage: null },
   { label: "Appearance", path: "/appearance", stage: 4 },
-  { label: "Domains", path: "/domains", stage: 8 },
   { label: "Billing", path: "/billing", stage: 6 },
-  { label: "Settings", path: "/settings", stage: 2 },
+  { label: "Domains", path: "/domains", stage: 8 },
 ] as const;
 
 const NOTICES = {
@@ -38,7 +39,7 @@ export default async function StoreDashboardLayout({ children, params }: LayoutP
           Free trial · ends {store.trialEndsAt.toLocaleDateString("en-NG", { dateStyle: "medium" })}
         </div>
       )}
-      <Container className="grid flex-1 gap-8 py-8 md:grid-cols-[200px_1fr]">
+      <Container className="grid flex-1 gap-8 py-8 md:grid-cols-[200px_minmax(0,1fr)]">
         <aside>
           <p className="truncate font-semibold">{store.name}</p>
           <a href={storefrontUrl(store.subdomain)} className="text-xs text-brand hover:underline" target="_blank">
@@ -59,7 +60,7 @@ export default async function StoreDashboardLayout({ children, params }: LayoutP
             )}
           </nav>
         </aside>
-        <section>{children}</section>
+        <section className="min-w-0">{children}</section>
       </Container>
     </div>
   );

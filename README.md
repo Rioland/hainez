@@ -2,7 +2,11 @@
 
 One Next.js codebase and one Postgres database serving many isolated online stores. Businesses sign up, get a free subdomain and a 30-day trial, then pay yearly. Each store gets its own branded storefront and admin dashboard.
 
-> **Status: Stage 1 of 11.** Project setup, schema, auth, tenant resolution and subdomain/path routing. See [`docs/PROPOSAL.md`](docs/PROPOSAL.md) for the full plan and [`docs/DECISIONS.md`](docs/DECISIONS.md) for decisions made since.
+> **Status: Stage 2 of 11.**
+> - **Stage 1:** project setup, schema, auth, tenant resolution, subdomain/path routing.
+> - **Stage 2:** store admin (products with variants and images, categories, orders with stock handling, customers, settings and delivery options, overview).
+>
+> See [`docs/PROPOSAL.md`](docs/PROPOSAL.md) for the full plan and [`docs/DECISIONS.md`](docs/DECISIONS.md) for decisions made since.
 
 ## Stack
 
@@ -57,11 +61,14 @@ Open these in Chrome or Firefox (both resolve `*.localhost` to your machine):
 
 | URL | What |
 |---|---|
-| http://app.localhost:3000 | Platform. Log in as `owner@demo.test` / `demo-password-123` |
+| http://app.localhost:3000 | Platform. Log in as `owner@demo.test` / `demo-password-123` (or `staff@demo.test`, same password, staff role) |
 | http://admin.localhost:3000 | Super admin (`SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD`) |
 | http://demo.localhost:3000 | Demo storefront (trialing) |
 | http://closed.localhost:3000 | Suspended store (503 page) |
 | http://nope.localhost:3000 | Unknown store (404 page) |
+
+> **macOS tip:** browsers resolve `*.localhost` by themselves, but Node may not. If the terminal shows `ENOTFOUND app.localhost`, add this line to `/etc/hosts`:
+> `127.0.0.1 app.localhost admin.localhost demo.localhost acme.localhost closed.localhost`
 
 To try path mode locally, set `ROUTING_MODE=path` and open http://localhost:3000/store/demo and http://localhost:3000/admin.
 
@@ -75,7 +82,46 @@ To try path mode locally, set `ROUTING_MODE=path` and open http://localhost:3000
 | `pnpm test:unit` | Unit tests only, no database |
 | `pnpm db:generate` | Generate a migration after editing `src/server/db/schema/*` |
 | `pnpm db:migrate` | Apply migrations, sync tenant grants, assert RLS |
-| `pnpm db:seed` / `pnpm db:seed:demo` | Base data (+ demo stores) |
+| `pnpm db:seed` / `pnpm db:seed:demo` | Base data (+ demo stores, catalog, delivery options and orders) |
+
+## Store admin (Stage 2)
+
+Everything lives under `/dashboard/{store}`:
+
+| Page | What it does |
+|---|---|
+| Overview | 30-day sales, orders, average order, orders to ship, top products, low stock |
+| Orders | List with status tabs, search (order #, email, name) and date range. The detail page shows items, totals, customer, address and history |
+| Products | Search by title/SKU, filter by status or category, paginated. The editor has options → variant matrix (price, compare-at, SKU, stock per variant), images, categories and SEO |
+| Categories | Nested categories with product counts |
+| Customers | Order count, total spent and last order per customer, plus a detail page with their orders |
+| Settings | Store details and currency (owner/admin only), delivery options with price, free-over threshold, states and ETA |
+
+**Order flow:** `pending → paid → shipped → delivered`. `pending → shipped` is for pay-on-delivery, and cancelling is allowed before shipping.
+- Stock is taken when an order becomes **paid or shipped**.
+- If there isn't enough stock, the change is refused and nothing is taken.
+- Stock goes back if the order is cancelled.
+- Every change is recorded in the order history and the audit log.
+
+**Roles:** staff can manage products, categories and orders. Settings need admin or owner. When a store's subscription has lapsed or it's suspended, the dashboard is read-only, and the server refuses writes as well as disabling the forms.
+
+### Image uploads
+
+Images go straight from the browser to storage with a signed URL. The server then checks the file really is an image (its file signature, not just its type) before recording it.
+- **Local development:** `STORAGE_DRIVER=local` stores files in `.data/uploads`.
+- **Vercel:** you need a bucket. Cloudflare R2 is recommended.
+
+To set up R2:
+
+1. **Create a bucket** in Cloudflare → R2, e.g. `hainez-media`.
+2. **Make it public:** Settings → Public access → turn on the `r2.dev` URL, or connect a custom domain such as `cdn.yourbrand.com`. That URL is `S3_PUBLIC_URL`.
+3. **Create an API token:** R2 → Manage API tokens → "Object Read & Write" for this bucket. This gives `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and the endpoint `https://<account-id>.r2.cloudflarestorage.com`.
+4. **Add a CORS policy** under bucket Settings → CORS, so browsers can upload:
+   ```json
+   [{ "AllowedOrigins": ["https://<your-project>.vercel.app", "http://localhost:3000"],
+      "AllowedMethods": ["PUT", "GET"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
+   ```
+5. **Set the environment variables:** `STORAGE_DRIVER=s3`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL`.
 
 ## Deploying to Vercel + Neon (no custom domain yet)
 
@@ -87,6 +133,7 @@ To try path mode locally, set `ROUTING_MODE=path` and open http://localhost:3000
    - `PLATFORM_NAME`: optional.
    - `SEED_SUPERADMIN_EMAIL` and `SEED_SUPERADMIN_PASSWORD`: for the first seed.
    - `ROOT_DOMAIN` can stay unset; Vercel's production URL is used.
+   - For image uploads, the `S3_*` variables (see "Image uploads" above).
 4. **Set Build Command** to `pnpm vercel-build`. It runs migrations, then `next build`.
 5. **Deploy, then seed once from your machine** against the Neon URL:
    `DATABASE_URL=<neon unpooled url> SEED_SUPERADMIN_EMAIL=… SEED_SUPERADMIN_PASSWORD=… pnpm db:seed`
@@ -117,7 +164,8 @@ src/
     db/tenant.ts               withTenant()
     tenancy/                   routing rules, resolver + cache, access rules, URLs
     auth/                      Better Auth config, guards, memberships
-    modules/                   feature modules (superadmin, storefront, …)
+    modules/                   catalog, orders, customers, settings, media, overview, audit, superadmin, storefront
+    storage/                   StorageAdapter: S3/R2 + local disk
 drizzle/                       SQL migrations (0000 bootstrap roles/functions, 0001 tables, 0002 grants)
 scripts/                       migrate.ts, seed.ts
 tests/                         unit/ and integration/

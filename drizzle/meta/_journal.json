@@ -22,6 +22,20 @@
       "when": 1790680281774,
       "tag": "0002_tenant_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790681775657,
+      "tag": "0003_catalog_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790681789325,
+      "tag": "0004_nullable_tenant_fks",
+      "breakpoints": true
     }
   ]
 }

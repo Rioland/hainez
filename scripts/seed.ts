@@ -116,7 +116,16 @@ async function main() {
           verifiedAt: new Date(),
         })
         .onConflictDoNothing();
-      console.log(`✓ demo owner owner@demo.test / ${password}`);
+      const [demoStore] = await db.select({ id: stores.id }).from(stores).where(eq(stores.subdomain, "demo"));
+      // A staff member (can manage products/orders, not settings) to try role limits.
+      const staffId = await ensureUser(db, { name: "Sam Staff", email: "staff@demo.test", password });
+      await db.insert(storeMembers).values({ storeId: demoStore.id, userId: staffId, role: "staff" }).onConflictDoNothing();
+      const { seedDemoCatalog } = await import("./seed-demo-catalog");
+      if (await seedDemoCatalog(demoStore.id, ownerId)) console.log("✓ demo catalog: categories, 5 products, delivery options, 6 orders");
+      else console.log("• demo catalog already present");
+      const { pool } = await import("../src/server/db/platform");
+      await pool.end();
+      console.log(`✓ demo owner owner@demo.test / ${password} (staff: staff@demo.test, same password)`);
       console.log("✓ demo stores: demo (trialing), acme (active, custom domain acme-fashion.test), closed (suspended)");
     }
   } finally {

@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { platformDb } from "../../db/platform";
 import { domains, storeMembers, stores, users } from "../../db/schema";
+import { subquery } from "../../db/sql";
 
 /**
  * Cross-store listing for the super-admin dashboard (platform connection).
@@ -18,11 +19,10 @@ export async function listAllStores() {
       adminSuspendedAt: stores.adminSuspendedAt,
       createdAt: stores.createdAt,
       ownerEmail: users.email,
-      primaryDomain: sql<string | null>`(
+      primaryDomain: subquery<string | null>(sql`
         SELECT ${domains.hostname} FROM ${domains}
         WHERE ${domains.storeId} = ${stores.id} AND ${domains.isPrimary} AND ${domains.status} = 'active'
-        LIMIT 1
-      )`,
+        LIMIT 1`),
     })
     .from(stores)
     .leftJoin(storeMembers, and(eq(storeMembers.storeId, stores.id), eq(storeMembers.role, "owner")))

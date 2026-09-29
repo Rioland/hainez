@@ -38,8 +38,30 @@ const schema = z
 
     PLATFORM_NAME: z.string().default("StoreBuilder"),
 
+    /**
+     * Where uploaded images go.
+     *  - "local": ./.data/uploads, served by the app (development only; Vercel's disk is not persistent)
+     *  - "s3":    any S3-compatible bucket, e.g. Cloudflare R2
+     */
+    STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+    S3_ENDPOINT: z.string().url().optional(), // R2: https://<account-id>.r2.cloudflarestorage.com
+    S3_REGION: z.string().default("auto"),
+    S3_BUCKET: z.string().optional(),
+    S3_ACCESS_KEY_ID: z.string().optional(),
+    S3_SECRET_ACCESS_KEY: z.string().optional(),
+    /** Public base URL for objects, e.g. https://cdn.yourbrand.com or the bucket's r2.dev URL. */
+    S3_PUBLIC_URL: z.string().url().optional(),
+    UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
+
     // Set automatically by Vercel, e.g. "multistore-builder.vercel.app".
     VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (env.STORAGE_DRIVER === "s3") {
+      for (const key of ["S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_PUBLIC_URL"] as const) {
+        if (!env[key]) ctx.addIssue({ code: "custom", path: [key], message: `required when STORAGE_DRIVER=s3` });
+      }
+    }
   })
   .transform((env) => {
     const rootDomain = (env.ROOT_DOMAIN ?? env.VERCEL_PROJECT_PRODUCTION_URL ?? "localhost:3000").toLowerCase();

@@ -23,6 +23,14 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true },
+      ],
+    },
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     ignores: PLATFORM_DB_ALLOWED,
     rules: {
