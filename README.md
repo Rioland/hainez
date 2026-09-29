@@ -98,7 +98,7 @@ Everything lives under `/dashboard/{store}`:
 | Settings | Store details and currency (owner/admin only), delivery options with price, free-over threshold, states and ETA |
 
 **Order flow:** `pending → paid → shipped → delivered`. `pending → shipped` is for pay-on-delivery, and cancelling is allowed before shipping.
-- Stock is taken when an order becomes **paid or shipped**.
+- Storefront orders **reserve stock at checkout** (pay on delivery has no payment step to wait for). Other orders take stock when they become **paid or shipped**.
 - If there isn't enough stock, the change is refused and nothing is taken.
 - Stock goes back if the order is cancelled.
 - Every change is recorded in the order history and the audit log.
@@ -122,6 +122,32 @@ To set up R2:
       "AllowedMethods": ["PUT", "GET"], "AllowedHeaders": ["content-type"], "MaxAgeSeconds": 3600 }]
    ```
 5. **Set the environment variables:** `STORAGE_DRIVER=s3`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL`.
+
+## Storefront (Stage 3)
+
+Each store is served at `{store}.<root>` (or its custom domain), or `/store/{store}` in path mode. Every link carries that base path, so both modes work.
+
+| Page | What it does |
+|---|---|
+| Home `/` | Featured products, top-level categories, new arrivals |
+| Category `/c/{slug}` | Products in the category and its sub-categories; sort by newest or price; paginated |
+| Search `/search?q=` | Full-text search over titles and descriptions (not indexed by search engines) |
+| Product `/p/{slug}` | Gallery, option pickers that grey out sold-out combinations, stock hints, add to cart |
+| Cart `/cart` | Change quantities, remove lines. Lines whose product changed (sold out, less stock, unpublished) are flagged and block checkout |
+| Checkout `/checkout` | Contact and address, delivery options filtered by state, pay on delivery |
+| Order `/order/{id}?t=…` | Confirmation and status. The `t` token is the guest's private link to the order |
+| Account `/account`, `/account/login`, `/account/register` | Optional customer accounts per store, with order history |
+
+**Try it locally:** `pnpm db:seed:demo`, `pnpm dev`, then open http://demo.localhost:3000, add something to the cart and check out. The order appears in the owner's dashboard at http://app.localhost:3000/dashboard/demo/orders.
+
+How it behaves:
+- **Prices come from the database** at every step. The cart shows live prices, and checkout recomputes items and delivery on the server.
+- **Stock is reserved when the order is placed** (variant rows locked, so two shoppers can't both buy the last one). Cancelling in the dashboard returns it.
+- **Carts** live in the database. The browser only holds a random token in an httpOnly cookie, scoped to the store's host (and to `/store/{name}` in path mode).
+- **Customer accounts belong to one store.** The same email on two stores is two accounts. A signed-in customer sees orders placed while signed in. Earlier guest orders with the same email appear once the email is verified (email arrives in Stage 10), so nobody can read someone else's orders by registering their address.
+- **Limits:** checkout 10 per 10 minutes, sign-in 10 and sign-up 5 per 15 minutes, per store and IP.
+- **SEO:** per-page titles and descriptions, canonical URLs on the store's primary host, Open Graph images, Product JSON-LD, plus `/sitemap.xml` and `/robots.txt` per store. Cart, checkout, account and order pages are `noindex`.
+- **Caching:** catalog reads are cached per store for up to an hour. Dashboard edits expire the store's cache immediately.
 
 ## Deploying to Vercel + Neon (no custom domain yet)
 
@@ -154,7 +180,7 @@ src/
   app/
     platform/                  app.<root>: landing, login, signup, dashboard/[store]
     superadmin/                admin.<root>: login, stores list
-    s/[storeId]/               storefront (home, unavailable, 404)
+    s/[storeId]/               storefront: home, c/, p/, search, cart, checkout, order/, account/, sitemap.xml, robots.txt
     store-not-found/           platform-branded 404 for unknown stores
     api/auth/[...all]/         Better Auth handler (platform hosts only)
   server/
@@ -166,7 +192,7 @@ src/
     auth/                      Better Auth config, guards, memberships
     modules/                   catalog, orders, customers, settings, media, overview, audit, superadmin, storefront
     storage/                   StorageAdapter: S3/R2 + local disk
-drizzle/                       SQL migrations (0000 bootstrap roles/functions, 0001 tables, 0002 grants)
+drizzle/                       SQL migrations (0000 bootstrap roles/functions, 0001 tables, 0002 grants, … 0005–0006 storefront)
 scripts/                       migrate.ts, seed.ts
 tests/                         unit/ and integration/
 docs/                          PROPOSAL.md, DECISIONS.md, schema-proposal.sql

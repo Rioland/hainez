@@ -2,6 +2,57 @@
 
 Decisions made after the original proposal (`PROPOSAL.md`). Newest first.
 
+## Stage 3 (2026-09-29)
+
+### Payment: pay on delivery only, for now
+- Checkout offers **pay on delivery** until Stage 7 connects each store's own Paystack account. `orders.payment_method` already allows `bank_transfer` and `online`.
+- The dashboard order page shows the payment method.
+
+### Stock is reserved at checkout for storefront orders
+- **What changed from Stage 2.** Stage 2 took stock when an order became paid or shipped. With pay on delivery there's no payment step, so waiting would let many pending orders promise the same last item.
+- **Now:** placing an order locks the variant rows and takes the stock in the same transaction (`inventory_committed = true`). If two shoppers race for the last unit, one order goes through and the other gets "stock just changed".
+- Cancelling returns the stock (unchanged Stage 2 logic). The dashboard hints now follow `inventory_committed`, not the status.
+
+### Carts
+- **Server-side carts** (`carts`, `cart_items`). The cookie `ms_cart` holds a random token; only its SHA-256 hash is stored.
+- A cart line is checked live on every view: price, availability, stock. Changed lines are flagged and block checkout until fixed.
+- After checkout the cart is marked converted. **Its cookie is not deleted:** changing a cookie inside a server action makes Next re-render the page, and the checkout page would bounce the now-empty cart to `/cart` before the shopper reached the confirmation. A converted cart reads as empty, and the next "add to cart" replaces the cookie.
+
+### Customer accounts
+- **Our own small module, not Better Auth.** Customer accounts are per store (same email on two stores = two accounts) and must never mix with platform (owner/staff) sessions. Passwords use Better Auth's scrypt helpers. Sessions live in `customer_sessions` (token hash only), 30 days, cookie `ms_customer`.
+- **Login is timing-safe:** an unknown email still verifies against a dummy hash.
+- **Which orders an account sees.** Anyone can register with any email until verification exists (Stage 10). So an account sees only orders **placed while signed in** (`orders.placed_signed_in`). Earlier guest orders with that email show up once the email is verified. Registering over a guest record keeps the name and phone the store already has.
+- **Guests** reach their order through a private link: `/order/{id}?t=…`, where `t` is an HMAC of the order id (no extra storage). The page sends `Referrer-Policy: same-origin` so the token doesn't leak to other sites.
+
+### Cookies
+- Storefront cookies are httpOnly, `SameSite=Lax`, `Secure` when `USE_HTTPS=true`, and host-only. In path mode several stores share one host, so cookies also get `Path=/store/{name}`.
+
+### Navigation after actions that change cookies
+- Sign-in, sign-out and checkout finish with a **full page load** (`window.location.assign`), started inside the action callback. The whole storefront (header, cart count) depends on those cookies, and the page re-renders mid-action and may unmount the form before an effect could run.
+- For the same reason, the account and sign-in pages show a prompt instead of calling `redirect()`.
+
+### Forms keep what you typed
+- React 19 resets a `<form action>` after every submission, which wiped fields when the server returned a validation error (this affected the Stage 2 dashboard forms too).
+- **Rule:** spread `keepValues` from `src/components/form.tsx` on action forms; use `clearForm()` to reset on purpose (e.g. after "Add").
+
+### Caching: `unstable_cache`, not Cache Components
+- Catalog reads use `unstable_cache` with the `store:{id}`, `store:{id}:catalog` and `store:{id}:settings` tags, revalidating hourly as a safety net. Dashboard actions already expire those tags.
+- Turning on Cache Components (`use cache`) would change how every existing page renders. We can migrate once the storefront settles.
+
+### Rate limits are in memory
+- Fixed window, per store and IP. Fine for one VPS process; on Vercel each instance counts separately, so it only slows abuse down. Stage 10 moves the counters to Redis/Upstash without changing callers.
+- The client IP comes from the first `X-Forwarded-For` entry. Vercel sets that header itself, and Caddy ignores client-sent values unless the request comes from a trusted proxy.
+
+### One query at a time per transaction
+- A transaction is one Postgres connection, so `Promise.all` over queries didn't run them in parallel; pg just queued them, which pg 9 will turn into an error.
+- **Rule:** use `inSequence()` from `src/server/db/sql.ts` (Stage 2 code updated too).
+
+### Deferred
+- **Order confirmation emails** to the shopper and the store: Stage 10 (email).
+- **Theme, logo and brand colours** on the storefront: Stage 4.
+- **Online payment** (store's own Paystack): Stage 7.
+- **Abandoned-cart cleanup** job: with the background worker (pg-boss).
+
 ## Stage 2 (2026-09-29)
 
 ### Catalog model
@@ -20,7 +71,7 @@ Decisions made after the original proposal (`PROPOSAL.md`). Newest first.
 ### Orders and stock
 - `pending → paid | shipped | cancelled`, `paid → shipped | cancelled`, `shipped → delivered`.
 - **Pay-on-delivery:** `pending → shipped` is allowed, and delivering an unpaid order marks it paid.
-- **When stock moves:** it is taken when an order first becomes paid or shipped, and returned on cancel.
+- **When stock moves:** it is taken when an order first becomes paid or shipped, and returned on cancel. (Stage 3: storefront orders reserve it at checkout instead.)
 - **Concurrency:** the order row is locked (`FOR UPDATE`), so two people clicking at once can't both apply a change or double-take stock. Overselling is refused with the item and the remaining quantity named.
 - **Refunds and returns** are not in scope yet. They arrive with payments in Stage 7.
 - **Orders are not created manually in the admin.** Stage 2 has no "create order" screen; orders arrive from checkout in Stage 3. The demo seed makes sample orders through `createOrder()`.

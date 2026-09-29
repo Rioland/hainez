@@ -20,8 +20,8 @@ import { actorType, orderStatus } from "./enums";
 import { stores } from "./stores";
 
 /*
- * Customers, shipping and orders. Customer accounts/login, carts and checkout
- * arrive in Stage 3; Stage 2 is the admin side.
+ * Customers, shipping, carts and orders. Customers belong to one store; their
+ * sessions and carts are scoped to that store's host (see storefront modules).
  */
 
 export type Address = {
@@ -75,8 +75,14 @@ export const customers = pgTable(
     email: citext("email").notNull(),
     name: text("name"),
     phone: text("phone"),
-    /** NULL = guest checkout customer (accounts arrive in Stage 3). */
+    /** NULL = guest checkout customer (no account). */
     passwordHash: text("password_hash"),
+    /**
+     * When the customer set a password. Until their email is verified (Stage 10),
+     * their account only shows orders placed after this moment, so registering
+     * with someone else's email can't reveal that person's past guest orders.
+     */
+    accountCreatedAt: timestamp("account_created_at", { withTimezone: true }),
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
     acceptsMarketing: boolean("accepts_marketing").notNull().default(false),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -115,7 +121,15 @@ export const orders = pgTable(
     billingAddress: jsonb("billing_address").$type<Address>(),
     customerNote: text("customer_note"),
     internalNote: text("internal_note"),
-    /** Provider + reference arrive with checkout (Stage 3/7). */
+    /** How the customer pays: "pay_on_delivery" now; "online" (Paystack) in Stage 7. */
+    paymentMethod: text("payment_method").notNull().default("pay_on_delivery"),
+    /**
+     * Placed while signed in to the customer account. Until the account's email
+     * is verified, only these orders show in "My orders": anyone can register
+     * with someone else's email, and must not see that person's guest orders.
+     */
+    placedSignedIn: boolean("placed_signed_in").notNull().default(false),
+    /** Online payment provider + reference (Stage 7). */
     paymentProvider: text("payment_provider"),
     paymentReference: text("payment_reference"),
     /** Stock was decremented for this order (exactly once). */
@@ -132,6 +146,7 @@ export const orders = pgTable(
   (t) => [
     unique("orders_store_id_id_key").on(t.storeId, t.id),
     unique("orders_store_number_key").on(t.storeId, t.orderNumber),
+    check("orders_payment_method_check", sql`${t.paymentMethod} IN ('pay_on_delivery', 'bank_transfer', 'online')`),
     check(
       "orders_total_check",
       sql`${t.totalMinor} = ${t.subtotalMinor} + ${t.shippingMinor} + ${t.taxMinor} - ${t.discountMinor}`,
@@ -192,6 +207,67 @@ export const orderStatusHistory = pgTable(
   (t) => [
     foreignKey({ columns: [t.storeId, t.orderId], foreignColumns: [orders.storeId, orders.id] }).onDelete("cascade"),
     index("order_status_history_order").on(t.storeId, t.orderId, t.createdAt),
+    tenantPolicy(),
+  ],
+);
+
+/** A signed-in customer's session. The cookie holds a random token; only its SHA-256 is stored. */
+export const customerSessions = pgTable(
+  "customer_sessions",
+  {
+    id: id(),
+    storeId: uuid("store_id").notNull(),
+    customerId: uuid("customer_id").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.storeId, t.customerId], foreignColumns: [customers.storeId, customers.id] }).onDelete("cascade"),
+    index("customer_sessions_customer").on(t.storeId, t.customerId),
+    tenantPolicy(),
+  ],
+);
+
+/** Shopping cart, identified by a random cookie token (hashed here). Prices are always read live. */
+export const carts = pgTable(
+  "carts",
+  {
+    id: id(),
+    storeId: uuid("store_id")
+      .notNull()
+      .references(() => stores.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id"), // FK in 0006 (SET NULL customer_id)
+    tokenHash: text("token_hash").notNull().unique(),
+    status: text("status").notNull().default("active"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("carts_store_id_id_key").on(t.storeId, t.id),
+    check("carts_status_check", sql`${t.status} IN ('active', 'converted', 'abandoned')`),
+    index("carts_customer").on(t.storeId, t.customerId),
+    tenantPolicy(),
+  ],
+);
+
+export const cartItems = pgTable(
+  "cart_items",
+  {
+    id: id(),
+    storeId: uuid("store_id").notNull(),
+    cartId: uuid("cart_id").notNull(),
+    variantId: uuid("variant_id").notNull(),
+    quantity: integer("quantity").notNull(),
+    addedAt: createdAt(),
+  },
+  (t) => [
+    unique("cart_items_cart_variant_key").on(t.cartId, t.variantId),
+    check("cart_items_quantity_check", sql`${t.quantity} BETWEEN 1 AND 999`),
+    foreignKey({ columns: [t.storeId, t.cartId], foreignColumns: [carts.storeId, carts.id] }).onDelete("cascade"),
     tenantPolicy(),
   ],
 );

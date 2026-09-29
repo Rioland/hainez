@@ -1,10 +1,29 @@
 "use client";
 
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, FormEvent, ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "./ui";
 
 /* Form primitives shared by dashboard forms. */
+
+/**
+ * React 19 resets a <form action={...}> after every submission, which wipes
+ * what the user typed when the server answers with a validation error. Spread
+ * onto such forms to keep the values: <form action={a} {...keepValues}>.
+ * To clear a form on purpose (e.g. after "Add"), call clearForm(form).
+ */
+export const keepValues = {
+  onReset: (e: FormEvent<HTMLFormElement>) => {
+    if (e.currentTarget.dataset.clearing !== "1") e.preventDefault();
+  },
+};
+
+export function clearForm(form: HTMLFormElement | null) {
+  if (!form) return;
+  form.dataset.clearing = "1";
+  form.reset(); // fires "reset" synchronously
+  delete form.dataset.clearing;
+}
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 

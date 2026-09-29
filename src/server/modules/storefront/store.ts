@@ -4,11 +4,9 @@ import { stores } from "../../db/schema";
 import { withTenant } from "../../db/tenant";
 
 /**
- * The storefront's own store row, read under the tenant role (RLS) — the
- * storefront never needs the platform connection.
- *
- * Stage 3/4 will wrap this in 'use cache' + cacheTag(`store:${id}`) and add
- * theme data; for Stage 1 it is deduplicated per request only.
+ * Live (uncached) read of the store's billing/suspension state, for the
+ * "temporarily unavailable" page. Catalog pages use the cached getPublicStore
+ * in ./catalog instead.
  */
 export const getStorefrontStore = cache(async (storeId: string) =>
   withTenant(storeId, async (tx) => {
@@ -16,10 +14,6 @@ export const getStorefrontStore = cache(async (storeId: string) =>
       .select({
         id: stores.id,
         name: stores.name,
-        subdomain: stores.subdomain,
-        currency: stores.currency,
-        contactEmail: stores.contactEmail,
-        contactPhone: stores.contactPhone,
         billingStatus: stores.billingStatus,
         adminSuspendedAt: stores.adminSuspendedAt,
       })

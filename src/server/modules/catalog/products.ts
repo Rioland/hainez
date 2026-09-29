@@ -6,7 +6,7 @@ import { MAX_OPTIONS, MAX_VALUES_PER_OPTION, MAX_VARIANTS, variantKey, variantTi
 import { categories, media, productCategories, productImages, products, productVariants } from "../../db/schema";
 import type { TenantTx } from "../../db/tenant";
 import { audit } from "../audit/audit";
-import { subquery } from "../../db/sql";
+import { inSequence, subquery } from "../../db/sql";
 import { mediaUrl } from "../media/uploads";
 import type { StoreActor } from "../_shared/actor";
 import { DomainError, NotFoundError } from "../_shared/errors";
@@ -181,23 +181,26 @@ export async function getProductForEdit(tx: TenantTx, storeId: string, id: strin
     .where(and(eq(products.storeId, storeId), eq(products.id, id), isNull(products.deletedAt)));
   if (!product) return null;
 
-  const [cats, variants, images] = await Promise.all([
-    tx
-      .select({ categoryId: productCategories.categoryId })
-      .from(productCategories)
-      .where(and(eq(productCategories.storeId, storeId), eq(productCategories.productId, id))),
-    tx
-      .select()
-      .from(productVariants)
-      .where(and(eq(productVariants.storeId, storeId), eq(productVariants.productId, id), isNull(productVariants.deletedAt)))
-      .orderBy(asc(productVariants.position)),
-    tx
-      .select({ mediaId: productImages.mediaId, alt: productImages.alt, storageKey: media.storageKey })
-      .from(productImages)
-      .innerJoin(media, and(eq(media.storeId, productImages.storeId), eq(media.id, productImages.mediaId)))
-      .where(and(eq(productImages.storeId, storeId), eq(productImages.productId, id)))
-      .orderBy(asc(productImages.position)),
-  ]);
+  const [cats, variants, images] = await inSequence(
+    () =>
+      tx
+        .select({ categoryId: productCategories.categoryId })
+        .from(productCategories)
+        .where(and(eq(productCategories.storeId, storeId), eq(productCategories.productId, id))),
+    () =>
+      tx
+        .select()
+        .from(productVariants)
+        .where(and(eq(productVariants.storeId, storeId), eq(productVariants.productId, id), isNull(productVariants.deletedAt)))
+        .orderBy(asc(productVariants.position)),
+    () =>
+      tx
+        .select({ mediaId: productImages.mediaId, alt: productImages.alt, storageKey: media.storageKey })
+        .from(productImages)
+        .innerJoin(media, and(eq(media.storeId, productImages.storeId), eq(media.id, productImages.mediaId)))
+        .where(and(eq(productImages.storeId, storeId), eq(productImages.productId, id)))
+        .orderBy(asc(productImages.position)),
+  );
 
   return {
     ...product,

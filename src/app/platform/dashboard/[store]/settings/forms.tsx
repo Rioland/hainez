@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { Checkbox, Field, FormMessage, Input, MoneyInput, Select, SubmitButton } from "@/components/form";
+import { Checkbox, Field, FormMessage, Input, MoneyInput, Select, SubmitButton, clearForm, keepValues } from "@/components/form";
 import { Button } from "@/components/ui";
 import { minorToInput } from "@/lib/money";
 
@@ -33,7 +33,7 @@ export function SettingsForm({
   const [currency, setCurrency] = useState(initial.currency);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} {...keepValues} className="space-y-4">
       <fieldset disabled={readOnly} className="grid gap-4 sm:grid-cols-2">
         <Field label="Store name" error={e.name}>
           <Input name="name" defaultValue={initial.name} required minLength={2} maxLength={80} />
@@ -120,13 +120,13 @@ export function ShippingForm({
 
   useEffect(() => {
     if (state?.ok) {
-      if (!initial) ref.current?.reset();
+      if (!initial) clearForm(ref.current);
       onDone?.();
     }
   }, [state, initial, onDone]);
 
   return (
-    <form ref={ref} action={formAction} className="space-y-4">
+    <form ref={ref} action={formAction} {...keepValues} className="space-y-4">
       <fieldset disabled={readOnly} className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" error={e.name}>
           <Input name="name" required maxLength={80} defaultValue={initial?.name} placeholder="e.g. Lagos delivery" />

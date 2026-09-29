@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
-import { Checkbox, Field, FormMessage, Input, Select, SubmitButton, Textarea } from "@/components/form";
+import { Checkbox, Field, FormMessage, Input, Select, SubmitButton, Textarea, clearForm, keepValues } from "@/components/form";
 import { useActionRedirect } from "@/components/use-action-redirect";
 
 type State = { ok: true; message?: string; redirectTo?: string } | { ok: false; error: string; fieldErrors?: Record<string, string[] | undefined> } | null;
@@ -26,11 +26,11 @@ export function CategoryForm({
 
   // Clear the "add" form after a successful create.
   useEffect(() => {
-    if (state?.ok && !initial) formRef.current?.reset();
+    if (state?.ok && !initial) clearForm(formRef.current);
   }, [state, initial]);
 
   return (
-    <form ref={formRef} action={formAction} className="space-y-4">
+    <form ref={formRef} action={formAction} {...keepValues} className="space-y-4">
       <fieldset disabled={readOnly} className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" error={errors.name}>
           <Input name="name" required maxLength={80} defaultValue={initial?.name} placeholder="e.g. Dresses" />

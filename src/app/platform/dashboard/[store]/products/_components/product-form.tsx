@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { Checkbox, Field, FormMessage, Input, MoneyInput, Select, SubmitButton, Textarea } from "@/components/form";
+import { Checkbox, Field, FormMessage, Input, MoneyInput, Select, SubmitButton, Textarea, keepValues } from "@/components/form";
 import { Button, Card } from "@/components/ui";
 import { useActionRedirect } from "@/components/use-action-redirect";
 import { minorToInput, parseMoney } from "@/lib/money";
@@ -196,7 +196,7 @@ function ProductEditor({
   const single = combos[0];
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form action={formAction} {...keepValues} className="space-y-6">
       <input type="hidden" name="payload" value={payload} />
       <fieldset disabled={readOnly} className="space-y-6">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">

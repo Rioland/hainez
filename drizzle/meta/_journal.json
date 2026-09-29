@@ -36,6 +36,20 @@
       "when": 1790681789325,
       "tag": "0004_nullable_tenant_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790707304065,
+      "tag": "0005_storefront",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790707305500,
+      "tag": "0006_storefront_fks",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,12 @@ import { OrderStatusControl } from "../order-status";
 
 export const metadata: Metadata = { title: "Order" };
 
+const PAYMENT_LABEL: Record<string, string> = {
+  pay_on_delivery: "Pay on delivery",
+  bank_transfer: "Bank transfer",
+  online: "Online (Paystack)",
+};
+
 export default async function OrderPage({ params }: PageProps<"/platform/dashboard/[store]/orders/[orderId]">) {
   const { store: subdomain, orderId } = await params;
   const { store, access } = await requireStoreRole(subdomain);
@@ -93,6 +99,7 @@ export default async function OrderPage({ params }: PageProps<"/platform/dashboa
               statusAction={changeOrderStatusAction.bind(null, subdomain, order.id)}
               noteAction={saveOrderNoteAction.bind(null, subdomain, order.id)}
               internalNote={order.internalNote ?? ""}
+              inventoryCommitted={order.inventoryCommitted}
               readOnly={access.dashboard === "read_only"}
             />
           </Card>
@@ -126,6 +133,10 @@ export default async function OrderPage({ params }: PageProps<"/platform/dashboa
             )}
             <p className="text-muted">{order.email}</p>
             {order.phone && <p className="text-muted">{order.phone}</p>}
+            <p className="pt-2">
+              <span className="text-muted">Payment: </span>
+              {PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}
+            </p>
           </Card>
           <Card className="text-sm">
             <h2 className="mb-2 font-medium">Delivery address</h2>

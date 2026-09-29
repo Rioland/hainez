@@ -16,7 +16,7 @@ import {
 } from "../../db/schema";
 import type { TenantTx } from "../../db/tenant";
 import { audit } from "../audit/audit";
-import { subquery } from "../../db/sql";
+import { inSequence, subquery } from "../../db/sql";
 import { mediaUrl } from "../media/uploads";
 import type { StoreActor } from "../_shared/actor";
 import { DomainError, NotFoundError } from "../_shared/errors";
@@ -81,21 +81,24 @@ export async function getOrder(tx: TenantTx, storeId: string, id: string) {
   if (!z.uuid().safeParse(id).success) return null;
   const [order] = await tx.select().from(orders).where(and(eq(orders.storeId, storeId), eq(orders.id, id)));
   if (!order) return null;
-  const [items, history, customer] = await Promise.all([
-    tx.select().from(orderItems).where(and(eq(orderItems.storeId, storeId), eq(orderItems.orderId, id))).orderBy(asc(orderItems.productTitle)),
-    tx
-      .select()
-      .from(orderStatusHistory)
-      .where(and(eq(orderStatusHistory.storeId, storeId), eq(orderStatusHistory.orderId, id)))
-      .orderBy(asc(orderStatusHistory.createdAt)),
-    order.customerId
-      ? tx
-          .select({ id: customers.id, name: customers.name, email: customers.email, phone: customers.phone })
-          .from(customers)
-          .where(and(eq(customers.storeId, storeId), eq(customers.id, order.customerId)))
-          .then((r) => r[0] ?? null)
-      : Promise.resolve(null),
-  ]);
+  const [items, history, customer] = await inSequence(
+    () =>
+      tx.select().from(orderItems).where(and(eq(orderItems.storeId, storeId), eq(orderItems.orderId, id))).orderBy(asc(orderItems.productTitle)),
+    () =>
+      tx
+        .select()
+        .from(orderStatusHistory)
+        .where(and(eq(orderStatusHistory.storeId, storeId), eq(orderStatusHistory.orderId, id)))
+        .orderBy(asc(orderStatusHistory.createdAt)),
+    async () => {
+      if (!order.customerId) return null;
+      const [c] = await tx
+        .select({ id: customers.id, name: customers.name, email: customers.email, phone: customers.phone })
+        .from(customers)
+        .where(and(eq(customers.storeId, storeId), eq(customers.id, order.customerId)));
+      return c ?? null;
+    },
+  );
   return { ...order, items, history, customer };
 }
 
