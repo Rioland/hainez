@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { platformDb, pool } from "@/server/db/platform";
 import { customers, orders, products, productVariants, stores, users } from "@/server/db/schema";
@@ -84,6 +84,19 @@ const orderRow = async (id: string) => (await platformDb.select().from(orders).w
 
 const stockOf = async (slug: string) =>
   (await platformDb.select({ s: productVariants.stockQuantity }).from(productVariants).where(eq(productVariants.id, v[slug])))[0].s;
+
+/** Wait until `n` sessions on the test database are blocked on a lock. */
+async function waitForLockWaiters(n: number, timeoutMs = 3_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { rows } = await platformDb.execute<{ waiting: number }>(
+      sql`SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+    );
+    if (rows[0].waiting >= n) return;
+    if (Date.now() > deadline) throw new Error(`expected ${n} sessions waiting on a lock, saw ${rows[0].waiting}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 beforeAll(async () => {
   const [owner] = await platformDb.insert(users).values({ name: "S3 Owner", email: `s3-${Date.now()}@t.test` }).returning({ id: users.id });
@@ -245,10 +258,33 @@ describe("checkout", () => {
 
   it("sells the last unit once when two shoppers check out at the same time", async () => {
     const [c1, c2] = [await cartWith([["last-one", 1]]), await cartWith([["last-one", 1]])];
-    const results = await Promise.allSettled([
+
+    // Make the checkouts really overlap: hold the variant's row lock until both
+    // have passed their cart check and are queued on a lock. Otherwise, on a
+    // fast database the first checkout can commit before the second starts,
+    // and the second is turned away by the cart check instead.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+    const blocker = platformDb.transaction(async (tx) => {
+      await tx.select({ id: productVariants.id }).from(productVariants).where(eq(productVariants.id, v["last-one"])).for("update");
+      locked();
+      await held;
+    });
+    await Promise.race([lockTaken, blocker]);
+
+    const race = Promise.allSettled([
       withTenant(A.storeId, (tx) => placeOrder(tx, A.storeId, c1, checkout({ email: "one@example.com" }), null)),
       withTenant(A.storeId, (tx) => placeOrder(tx, A.storeId, c2, checkout({ email: "two@example.com" }), null)),
     ]);
+    try {
+      await waitForLockWaiters(2);
+    } finally {
+      release();
+      await blocker;
+    }
+    const results = await race;
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
     expect(failed.reason).toBeInstanceOf(DomainError);
